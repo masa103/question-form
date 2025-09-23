@@ -1,4 +1,3 @@
-# question-form
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -51,7 +50,7 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycb.../exec"; // ← GASのWeb App URLに置き換えてください
-    const LIFF_ID = "2008085800-85LEKJG6"; // ← 質問者LIFF ID
+    const LIFF_ID = "2008085800-85LEKJG6"; // ← 質問者LIFF IDに置き換えてください
 
     async function initLIFF() {
       await liff.init({ liffId: LIFF_ID });
@@ -103,3 +102,4 @@
   </script>
 </body>
 </html>
+
