@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>回答フォーム</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; padding: 1em; background: #f9f9f9; }
+    h2 { color: #007aff; }
+    label { display: block; margin-top: 1em; font-weight: bold; }
+    select, textarea, input, button {
+      width: 100%; padding: 0.5em; margin-top: 0.5em;
+      font-size: 1em; box-sizing: border-box;
+    }
+    button {
+      background: #007aff; color: white; border: none;
+      border-radius: 4px; margin-top: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <h2>回答フォーム</h2>
+  <form id="answerForm">
+    <label>対応する質問選択</label>
+    <select name="answerTarget" id="answerSelect" required>
+      <option value="">選択してください</option>
+    </select>
+
+    <label>回答内容</label>
+    <textarea name="answer" required></textarea>
+
+    <label>ステータス更新</label>
+    <select name="status" required>
+      <option value="">選択してください</option>
+      <option value="対応済">対応済</option>
+      <option value="確認中">確認中</option>
+      <option value="保留">保留</option>
+    </select>
+
+    <button type="submit">回答を送信</button>
+  </form>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycb.../exec"; // ← GASのWeb App URLに置き換えてください
+    const LIFF_ID = "2008085800-DGBNX5O1"; // ← 回答者LIFF IDに置き換えてください
+
+    async function initLIFF() {
+      await liff.init({ liffId: LIFF_ID });
+      const profile = await liff.getProfile();
+      window.uid = profile.userId;
+      loadQuestions();
+    }
+
+    async function loadQuestions() {
+      try {
+        const res = await fetch(SCRIPT_URL + "?mode=log&uid=" + window.uid);
+        const text = await res.text();
+        const select = document.getElementById("answerSelect");
+        text.split("\n").forEach(line => {
+          const [label, value] = line.split("|");
+          if (label && value) {
+            const option = document.createElement("option");
+            option.textContent = label;
+            option.value = value;
+            select.appendChild(option);
+          }
+        });
+      } catch (err) {
+        alert("質問履歴の取得に失敗しました");
+      }
+    }
+
+    document.getElementById("answerForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const data = new FormData(form);
+      data.append("uid", window.uid);
+      data.append("role", "回答者");
+
+      try {
+        const res = await fetch(SCRIPT_URL, {
+          method: "POST",
+          body: data
+        });
+        const result = await res.text();
+        alert(result);
+        liff.closeWindow();
+      } catch (err) {
+        alert("送信に失敗しました");
+      }
+    });
+
+    initLIFF();
+  </script>
+</body>
+</html>
