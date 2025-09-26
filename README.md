@@ -1,105 +1,149 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>質問フォーム</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: sans-serif; padding: 1em; background: #f9f9f9; }
-    h2 { color: #007aff; }
-    label { display: block; margin-top: 1em; font-weight: bold; }
-    input, textarea, select, button {
-      width: 100%; padding: 0.5em; margin-top: 0.5em;
-      font-size: 1em; box-sizing: border-box;
-    }
-    button {
-      background: #007aff; color: white; border: none;
-      border-radius: 4px; margin-top: 1.5em;
-    }
-  </style>
-</head>
-<body>
-  <h2>質問フォーム</h2>
-  <form id="questionForm">
-    <label>質問件名</label>
-    <input type="text" name="title" required>
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const settingSheet = ss.getSheetByName("設定");
+  const qaSheet = ss.getSheetByName("質問・回答");
 
-    <label>質問内容</label>
-    <textarea name="question" required></textarea>
+  if (!settingSheet) return ContentService.createTextOutput("設定シートが見つかりません");
 
-    <label>ステータス</label>
-    <select name="status" required>
-      <option value="">選択してください</option>
-      <option value="新規">新規</option>
-      <option value="未着手">未着手</option>
-      <option value="着手中">着手中</option>
-      <option value="再質問">再質問</option>
-    </select>
+  // LIFF ID取得
+  if (e?.parameter?.mode === "getLiffId") {
+    const liffId = settingSheet.getRange("B12").getValue();
+    return ContentService.createTextOutput(liffId);
+  }
 
-    <label>過去の質問選択</label>
-    <select name="selectedTitle" id="titleSelect">
-      <option value="">選択してください</option>
-    </select>
+  // ステータスが「未着手・着手中」の件名一覧取得
+  if (e?.parameter?.mode === "getTitles") {
+    if (!qaSheet) return ContentService.createTextOutput("質問・回答シートが見つかりません");
 
-    <label>メールアドレス</label>
-    <input type="email" name="askerEmail">
+    const values = qaSheet.getDataRange().getValues();
+    const titles = new Set();
+    const allowedStatus = ["未着手", "着手中"];
 
-    <button type="submit">送信</button>
-  </form>
+    for (let i = 1; i < values.length; i++) {
+      const title = values[i][6];     // G列：件名
+      const status = values[i][14];   // O列：ステータス
 
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycb.../exec"; // ← GASのWeb App URLに置き換えてください
-    const LIFF_ID = "2008085800-85LEKJG6"; // ← 質問者LIFF IDに置き換えてください
-
-    async function initLIFF() {
-      await liff.init({ liffId: LIFF_ID });
-      const profile = await liff.getProfile();
-      window.uid = profile.userId;
-      loadTitles();
-    }
-
-    async function loadTitles() {
-      try {
-        const res = await fetch(SCRIPT_URL + "?mode=titles");
-        const text = await res.text();
-        const select = document.getElementById("titleSelect");
-        text.split("\n").forEach(line => {
-          const [label, value] = line.split("|");
-          if (label && value) {
-            const option = document.createElement("option");
-            option.textContent = label;
-            option.value = line;
-            select.appendChild(option);
-          }
-        });
-      } catch (err) {
-        alert("過去の質問一覧の取得に失敗しました");
+      if (title && allowedStatus.includes(status)) {
+        titles.add(title);
       }
     }
 
-    document.getElementById("questionForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const form = e.target;
-      const data = new FormData(form);
-      data.append("uid", window.uid);
-      data.append("role", "質問者");
+    return ContentService.createTextOutput(JSON.stringify([...titles]));
+  }
 
-      try {
-        const res = await fetch(SCRIPT_URL, {
-          method: "POST",
-          body: data
-        });
-        const result = await res.text();
-        alert(result);
-        liff.closeWindow();
-      } catch (err) {
-        alert("送信に失敗しました");
+  return HtmlService.createHtmlOutputFromFile("index");
+}
+
+function doPost(e) {
+  Logger.log("✅ doPost triggered");
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("質問・回答");
+    const settingSheet = ss.getSheetByName("設定");
+    const nameSheet = ss.getSheetByName("質問者名リスト");
+    const taskSheet = ss.getSheetByName("タスク一覧表");
+
+    if (!sheet || !settingSheet || !nameSheet || !taskSheet) {
+      throw new Error("必要なシートが見つかりません");
+    }
+
+    const folderId = settingSheet.getRange("B14").getValue();
+    const folder = DriveApp.getFolderById(folderId);
+
+    const now = new Date();
+    const qid = "Q" + Utilities.formatDate(now, "Asia/Tokyo", "yyyyMMddHHmmss");
+    const groupId = "G" + Utilities.formatDate(now, "Asia/Tokyo", "yyyyMMddHHmmss");
+    const data = e.parameter || {};
+    Logger.log("📦 受信データ: " + JSON.stringify(data));
+
+    let photo1Url = "", photo2Url = "";
+    // 画像は後で処理するため、ここでは空のままでOK
+
+    const uid = data.uid || "";
+    const groupName = data.responder || "";
+    Logger.log("🆔 UID: " + uid);
+
+    let roomNumber = "", ownerName = "", ownerEmail = "";
+    const nameValues = nameSheet.getDataRange().getValues();
+    for (let i = 1; i < nameValues.length; i++) {
+      const rowRoom = nameValues[i][0];
+      const rowUid = nameValues[i][3];
+
+      if (rowUid === uid) {
+        roomNumber = rowRoom || "";
+        ownerName = nameValues[i][1] || "";
+        ownerEmail = nameValues[i][2] || "";
+        nameSheet.getRange(i + 1, 5).setValue(groupName);
+        nameSheet.getRange(i + 1, 6).setValue(groupId);
+        Logger.log("🔗 UID一致: row " + (i + 1));
+        break;
       }
-    });
 
-    initLIFF();
-  </script>
-</body>
-</html>
+      if (!rowUid && rowRoom) {
+        nameSheet.getRange(i + 1, 4).setValue(uid);
+        nameSheet.getRange(i + 1, 5).setValue(groupName);
+        nameSheet.getRange(i + 1, 6).setValue(groupId);
+        roomNumber = rowRoom;
+        ownerName = nameValues[i][1] || "";
+        ownerEmail = nameValues[i][2] || "";
+        Logger.log("🔗 部屋番号一致でUID登録: row " + (i + 1));
+        break;
+      }
+    }
 
+    const newRow = [
+      qid,
+      Utilities.formatDate(now, "Asia/Tokyo", "yyyy/MM/dd HH:mm:ss"),
+      uid,
+      roomNumber,
+      ownerName,
+      groupName,
+      data.title || "",
+      data.question || "",
+      photo1Url,
+      Utilities.formatDate(now, "Asia/Tokyo", "yyyy/MM/dd HH:mm:ss"),
+      data.answer || "",
+      data.cause || "",
+      photo2Url,
+      data.status || "",
+      groupName,
+      ownerEmail,
+      ""
+    ];
+
+    const title = data.title || "";
+    const sheetValues = sheet.getDataRange().getValues();
+    let insertIndex = sheetValues.length + 1;
+    for (let i = 1; i < sheetValues.length; i++) {
+      if (sheetValues[i][6] === title) {
+        insertIndex = i + 1;
+      }
+    }
+
+    sheet.insertRows(insertIndex, 1);
+    sheet.getRange(insertIndex, 1, 1, newRow.length).setValues([newRow]);
+    Logger.log("📋 質問・回答シートに挿入: row " + insertIndex);
+
+    const taskRow = [
+      qid,
+      Utilities.formatDate(now, "Asia/Tokyo", "yyyy/MM/dd HH:mm:ss"),
+      data.title || "",
+      data.question || "",
+      data.status || "",
+      uid,
+      roomNumber,
+      ownerName,
+      groupName,
+      photo1Url
+    ];
+    taskSheet.appendRow(taskRow);
+    Logger.log("📋 タスク一覧表に記録");
+
+    return ContentService.createTextOutput("記録完了：" + qid);
+  } catch (err) {
+    Logger.log("❌ Error: " + err.message);
+    Logger.log("🪵 Stack: " + err.stack);
+    return ContentService.createTextOutput("エラー：" + err.message);
+  }
+}
